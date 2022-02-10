@@ -1,12 +1,16 @@
 const express = require("express");
 const mysql = require("mysql");
 const cors = require("cors");
+
 const bcrypt = require('bcrypt')
-const saltRounds = 10
 
 const bodyParser = require('body-parser')
 const session = require('express-session')
 const cookieParser = require('cookie-parser')
+
+const jwt = require('jsonwebtoken')
+
+const saltRounds = 10
 
 const app = express();
 app.use(express.json());
@@ -38,6 +42,25 @@ const db = mysql.createConnection({
   database: "test_auth",
 });
 
+
+const verifyJWT = (req, res, next) => {
+  const token = req.headers["x-access-token"]
+
+  if(!token){
+    res.send({message: "Could not find a token"})
+  } else {
+    jwt.verify(token, "jwtSecretKey", (err, decoded) => {
+      if(err){
+        res.json({auth: false, message: "Failed to authenticate"})
+      } else {
+        req.userId = decoded.id
+        next()
+      }
+    })
+  }
+}
+
+
 app.post("/register", (req, res) => {
   const username = req.body.username;
   const password = req.body.password;
@@ -60,10 +83,12 @@ app.post("/register", (req, res) => {
       }
     );
   })
-
-
   
 });
+
+app.get("/isUserAuthenticated",verifyJWT, (req, res) => {
+  res.send({message: "You are authenticated"})
+})
 
 
 app.get("/login", (req, res)=> {
@@ -90,16 +115,26 @@ app.post("/login", (req, res) => {
         //res.send(result);
         bcrypt.compare(password, result[0].passwords, (err, response)=>{
           if(response){
+
+            const id = result[0].id
+            const token = jwt.sign({id}, "jwtSecretKey", {
+              expiresIn: 300,
+            })
+
             req.session.user = result
+
             console.log(req.session.user)
-            res.send(result)
+            //res.send(result)
+            res.json({auth: true, token, result: result})
           } else {
-            res.send({ message: "wrong combination of username/password", err: "wrong combination" })
+            res.json({auth: false, message: "wrong combination of username/password"})
+            //res.send({ message: "wrong combination of username/password", err: "wrong combination" })
           }
         })
       } else {
-        console.log("no such thing found")
-        res.send({ message: "user does not exist", err: "404 not found" });
+        //console.log("no such thing found")
+        res.json({auth: false, message: "user does not exist"})
+        //res.send({ message: "user does not exist", err: "404 not found" });
       }
     }
   );
